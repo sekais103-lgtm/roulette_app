@@ -1,312 +1,161 @@
-import tkinter as tk
-from tkinter import messagebox
+import streamlit as st
+import pandas as pd
 import random
-import math
-import webbrowser  # URLを開くために必要
-import sys         # アプリを終了するために必要
+import time
 
-# ▼ここに飛ばしたいYouTubeのURLを入力してください▼
-YOUTUBE_URL = "https://youtu.be/cM7uKegVG-E?si=wueKrQjqanQRSZvI" 
-# ▲▲▲
+# ▼ここに飛ばしたいYouTubeのURL（埋め込み用ID）▼
+# 例: https://www.youtube.com/watch?v=dQw4w9WgXcQ なら "dQw4w9WgXcQ"
+YOUTUBE_VIDEO_ID = "dQw4w9WgXcQ" 
 
-class RouletteApp:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("Python Roulette App")
-        self.root.geometry("900x600")
-        self.root.resizable(False, False)
+def main():
+    st.set_page_config(page_title="Roulette App", page_icon="🎯")
 
-        # カラーパレット
-        self.colors = ["#FF9999", "#66B2FF", "#99FF99", "#FFCC99", "#FF99CC", "#FFFF99"]
+    # --- トラップ発動中かどうかの状態管理 ---
+    if "trap_active" not in st.session_state:
+        st.session_state.trap_active = False
+    if "trap_phase" not in st.session_state:
+        st.session_state.trap_phase = "intro" # intro, spinning, result
 
-        # 通常ルーレット用変数
-        self.items = []
-        self.current_angle = 0
-        self.spin_speed = 0
-        self.is_spinning = False
-        self.friction = 0.985
+    # もしトラップが発動していたら、BAN画面へ
+    if st.session_state.trap_active:
+        show_ban_screen()
+        return
 
-        # トラップ用変数
-        self.trap_window = None
-        self.forced_canvas = None
-        self.forced_items = [("死亡", 80), ("逃げる", 20)]
-        self.forced_angle = 0
-        self.forced_speed = 0
-        self.is_forced_spinning = False
+    # --- 通常画面 ---
+    st.title("🎯 Python Roulette App")
 
-        self._setup_ui()
-
-    def _setup_ui(self):
-        """通常画面のUIセットアップ"""
-        left_frame = tk.Frame(self.root, width=300, bg="#f0f0f0", padx=10, pady=10)
-        left_frame.pack(side=tk.LEFT, fill=tk.Y)
-        left_frame.pack_propagate(False)
-
-        tk.Label(left_frame, text="項目設定", font=("Meiryo", 12, "bold"), bg="#f0f0f0").pack(pady=5)
-        
-        self.entry_widgets = []
-        header_frame = tk.Frame(left_frame, bg="#f0f0f0")
-        header_frame.pack(fill=tk.X)
-        tk.Label(header_frame, text="項目名", width=15, bg="#f0f0f0").pack(side=tk.LEFT)
-        tk.Label(header_frame, text="確率(%)", width=8, bg="#f0f0f0").pack(side=tk.LEFT)
-
+    # 左サイドバーで設定
+    with st.sidebar:
+        st.header("項目設定 (最大10個)")
+        items_input = []
         for i in range(10):
-            row = tk.Frame(left_frame, bg="#f0f0f0")
-            row.pack(fill=tk.X, pady=2)
-            name_ent = tk.Entry(row, width=15)
-            name_ent.pack(side=tk.LEFT, padx=2)
-            name_ent.insert(0, f"項目{i+1}")
-            prob_ent = tk.Entry(row, width=8)
-            prob_ent.pack(side=tk.LEFT, padx=2)
-            self.entry_widgets.append((name_ent, prob_ent))
+            col1, col2 = st.columns([2, 1])
+            name = col1.text_input(f"項目名 {i+1}", value=f"項目{i+1}", key=f"n{i}")
+            prob = col2.number_input(f"確率(%) {i+1}", min_value=0.0, max_value=100.0, step=1.0, key=f"p{i}", value=0.0)
+            items_input.append({"name": name, "prob": prob})
 
-        self.btn_start = tk.Button(left_frame, text="スタート！", command=self.start_spin, 
-                                   bg="#FF5722", fg="white", font=("Meiryo", 14, "bold"), height=2)
-        self.btn_start.pack(fill=tk.X, pady=20)
+        start_btn = st.button("スタート！", type="primary", use_container_width=True)
 
-        self.lbl_result = tk.Label(left_frame, text="---", font=("Meiryo", 16, "bold"), bg="#f0f0f0", fg="#333")
-        self.lbl_result.pack(pady=10)
+    # メインエリア
+    placeholder = st.empty()
 
-        right_frame = tk.Frame(self.root, bg="white")
-        right_frame.pack(side=tk.RIGHT, expand=True, fill=tk.BOTH)
-        self.canvas = tk.Canvas(right_frame, bg="white", highlightthickness=0)
-        self.canvas.pack(expand=True, fill=tk.BOTH)
-        self.canvas.bind("<Configure>", self.draw_roulette)
-
-    def calculate_probabilities(self):
-        """確率計算ロジック（変更なし）"""
-        active_items = []
-        for name_ent, prob_ent in self.entry_widgets:
-            name = name_ent.get().strip()
-            prob_str = prob_ent.get().strip()
-            if not name: continue
-            prob = None
-            if prob_str:
-                try:
-                    prob = float(prob_str)
-                except ValueError:
-                    messagebox.showerror("エラー", f"「{name}」の確率は数値で入力してください。")
-                    return None
-            active_items.append({"name": name, "prob": prob})
-
-        if not active_items:
-            messagebox.showwarning("警告", "項目を少なくとも1つ入力してください。")
-            return None
-        
-        # ▼▼▼ トラップチェック ▼▼▼
-        # 項目名に「こはく」が含まれているかチェック
-        for item in active_items:
+    if start_btn:
+        # 1. トラップ判定
+        for item in items_input:
             if "こはく" in item["name"]:
-                self.activate_trap()
-                return "TRAP_ACTIVATED" # 特殊な値を返す
-        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+                st.session_state.trap_active = True
+                st.rerun() # 画面リロードしてBAN画面へ
+        
+        # 2. 確率計算
+        active_items = [item for item in items_input if item["name"].strip() != ""]
+        if not active_items:
+            st.warning("項目を入力してください")
+            return
 
-        specified_total = sum(item["prob"] for item in active_items if item["prob"] is not None)
+        specified_total = sum(item["prob"] for item in active_items if item["prob"] > 0)
         if specified_total > 100:
-            messagebox.showerror("エラー", f"確率の合計が100%を超えています (現在: {specified_total}%)")
-            return None
+            st.error(f"確率の合計が100%を超えています: {specified_total}%")
+            return
 
-        count_unspecified = sum(1 for item in active_items if item["prob"] is None)
-        remaining_prob = 100 - specified_total
+        # 確率の割り振り
+        count_unspecified = sum(1 for item in active_items if item["prob"] == 0)
+        remaining = 100 - specified_total
+        
         final_items = []
         for item in active_items:
             p = item["prob"]
-            if p is None:
-                p = remaining_prob / count_unspecified if count_unspecified > 0 else 0
+            if p == 0:
+                p = remaining / count_unspecified if count_unspecified > 0 else 0
             if p > 0:
-                final_items.append((item["name"], p))
-        return final_items
-
-    # --- 通常ルーレットの描画とアニメーション ---
-    def draw_roulette(self, event=None):
-        """通常ルーレットの描画"""
-        if not self.items or self.is_forced_spinning: return
-        self._draw_wheel_on_canvas(self.canvas, self.items, self.current_angle)
-
-    def start_spin(self):
-        """回転開始処理"""
-        if self.is_spinning: return
+                final_items.append({"name": item["name"], "value": p})
         
-        result = self.calculate_probabilities()
-        if result == "TRAP_ACTIVATED": return # トラップ発動時はここで終了
-        if not result: return
+        if not final_items:
+            st.error("有効な項目がありません")
+            return
+
+        # 3. ルーレット演出（簡易アニメーション）
+        df = pd.DataFrame(final_items)
         
-        self.items = result
-        self.lbl_result.config(text="回転中...", fg="#FF5722")
-        self.spin_speed = random.uniform(20, 30) 
-        self.is_spinning = True
-        self.btn_start.config(state=tk.DISABLED)
-        self.animate()
+        # 結果を先に抽選
+        names = [d["name"] for d in final_items]
+        weights = [d["value"] for d in final_items]
+        winner = random.choices(names, weights=weights, k=1)[0]
 
-    def animate(self):
-        """通常アニメーションループ"""
-        if not self.is_spinning: return
-        self.current_angle = (self.current_angle + self.spin_speed) % 360
-        self.draw_roulette()
-        self.spin_speed *= self.friction
-        if self.spin_speed < 0.1:
-            self.is_spinning = False
-            self.spin_speed = 0
-            self.show_result()
-            self.btn_start.config(state=tk.NORMAL)
-        else:
-            self.root.after(16, self.animate)
-
-    def show_result(self):
-        """通常結果表示"""
-        winner_name = self._get_winner(self.items, self.current_angle)
-        self.lbl_result.config(text=f"結果: {winner_name}", fg="red")
-        messagebox.showinfo("結果発表", f"選ばれたのは...\n\n【 {winner_name} 】です！")
-
-    # --- 共通描画ヘルパー ---
-    def _draw_wheel_on_canvas(self, canvas_obj, items_data, angle_offset):
-        """指定されたキャンバスにルーレットを描画する共通関数"""
-        canvas_obj.delete("all")
-        w = canvas_obj.winfo_width()
-        h = canvas_obj.winfo_height()
-        center_x, center_y = w / 2, h / 2
-        radius = min(w, h) / 2 - 40
-
-        start_deg = angle_offset
-        for i, (name, prob) in enumerate(items_data):
-            extent = (prob / 100) * 360
-            # トラップ時は色を固定
-            if self.is_forced_spinning:
-                color = "#FF0000" if name == "死亡" else "#00FF00"
-            else:
-                color = self.colors[i % len(self.colors)]
+        # 回転演出
+        with placeholder.container():
+            st.info("回転中...")
+            progress_bar = st.progress(0)
+            status_text = st.empty()
             
-            canvas_obj.create_arc(
-                center_x - radius, center_y - radius,
-                center_x + radius, center_y + radius,
-                start=start_deg, extent=extent,
-                fill=color, outline="white", width=2
-            )
-            # テキスト描画
-            mid_angle_rad = math.radians(start_deg + extent / 2)
-            text_r = radius * 0.6
-            text_x = center_x + text_r * math.cos(mid_angle_rad)
-            text_y = center_y - text_r * math.sin(mid_angle_rad)
-            canvas_obj.create_text(text_x, text_y, text=name, font=("Meiryo", 14, "bold"), fill="white" if self.is_forced_spinning else "black")
-            start_deg += extent
+            # パラパラと候補を表示する演出
+            for i in range(20):
+                temp_pick = random.choice(names)
+                status_text.markdown(f"### 🎲 {temp_pick} ...")
+                progress_bar.progress((i + 1) / 20)
+                time.sleep(0.1 + i * 0.01) # 徐々に遅く
+            
+            status_text.empty()
+            progress_bar.empty()
+            
+            st.success("決定！")
+            st.balloons()
+            st.markdown(f"# 結果: 【 {winner} 】")
+            st.write("選ばれたのは...", winner)
 
-        # 針の描画
-        canvas_obj.create_polygon(
-            center_x + radius + 10, center_y,
-            center_x + radius + 40, center_y - 15,
-            center_x + radius + 40, center_y + 15,
-            fill="black", outline="red", width=2
-        )
+    else:
+        # 待機画面：現在の設定でのグラフを表示
+        active_items = [item for item in items_input if item["name"].strip() != ""]
+        if active_items:
+             # 簡易計算でプレビュー表示
+            specified_total = sum(item["prob"] for item in active_items if item["prob"] > 0)
+            count_unspecified = sum(1 for item in active_items if item["prob"] == 0)
+            remaining = max(0, 100 - specified_total)
+            
+            preview_data = []
+            for item in active_items:
+                p = item["prob"]
+                if p == 0:
+                    p = remaining / count_unspecified if count_unspecified > 0 else 0
+                if p > 0:
+                    preview_data.append({"項目": item["name"], "確率": p})
+            
+            if preview_data:
+                df = pd.DataFrame(preview_data)
+                st.write("現在の確率設定:")
+                st.bar_chart(df.set_index("項目"))
 
-    def _get_winner(self, items_data, angle_offset):
-        """角度から当選項目を判定する共通関数"""
-        target_angle = (360 - angle_offset) % 360
-        current_check = 0
-        for name, prob in items_data:
-            extent = (prob / 100) * 360
-            if current_check <= target_angle < current_check + extent:
-                return name
-            current_check += extent
-        return items_data[-1][0] # フォールバック
 
-    # ==========================================
-    # ▼▼▼ ここからトラップ用ロジック ▼▼▼
-    # ==========================================
-    def activate_trap(self):
-        """トラップ発動！メイン画面を隠してBAN画面を表示"""
-        self.root.withdraw() # メインウィンドウを隠す
+def show_ban_screen():
+    st.markdown("""
+    <style>
+    .stApp { background-color: black; color: red; }
+    h1, h2, h3, p { color: red !important; }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    st.title("💀 警告 💀")
+    st.header("あなたは永久BANです")
+    st.write("最後の審判が始まります...")
+
+    if st.button("運命のルーレットを回す", type="primary"):
+        # 強制ルーレットロジック
+        with st.spinner("審判中..."):
+            time.sleep(3)
         
-        trap_win = tk.Toplevel(self.root)
-        trap_win.title("警告")
-        trap_win.geometry("600x600")
-        trap_win.configure(bg="black")
-        trap_win.resizable(False, False)
-        # ウィンドウを閉じるボタンを無効化
-        trap_win.protocol("WM_DELETE_WINDOW", lambda: None)
-        self.trap_window = trap_win
-
-        # BANメッセージ
-        tk.Label(trap_win, text="あなたは永久BANです", font=("Meiryo", 24, "bold"), 
-                 bg="black", fg="red", pady=20).pack()
+        # 死亡80%, 逃げる20%
+        result = random.choices(["死亡", "逃げる"], weights=[80, 20], k=1)[0]
         
-        tk.Label(trap_win, text="最後の審判が始まります...", font=("Meiryo", 14), 
-                 bg="black", fg="white").pack()
-
-        # 強制ルーレット用キャンバス
-        self.forced_canvas = tk.Canvas(trap_win, bg="black", highlightthickness=0)
-        self.forced_canvas.pack(expand=True, fill=tk.BOTH, padx=20, pady=20)
-        
-        # キャンバスのサイズが決まったら描画して回転開始
-        self.forced_canvas.bind("<Configure>", self._start_forced_sequence)
-
-    def _start_forced_sequence(self, event=None):
-        """強制ルーレットの準備と開始"""
-        # バインドを解除（一度だけ実行するため）
-        self.forced_canvas.unbind("<Configure>")
-        self.draw_forced_roulette()
-        # 2秒後に回転開始
-        self.root.after(2000, self.start_forced_spin)
-
-    def draw_forced_roulette(self):
-        """強制ルーレットの描画"""
-        if not self.forced_canvas: return
-        self._draw_wheel_on_canvas(self.forced_canvas, self.forced_items, self.forced_angle)
-
-    def start_forced_spin(self):
-        """強制回転開始"""
-        self.is_forced_spinning = True
-        # 初速を少し早めに設定
-        self.forced_speed = random.uniform(30, 45)
-        self.animate_forced()
-
-    def animate_forced(self):
-        """強制アニメーションループ"""
-        if not self.is_forced_spinning: return
-
-        self.forced_angle = (self.forced_angle + self.forced_speed) % 360
-        self.draw_forced_roulette()
-
-        # 摩擦係数を少し強めにして短時間で止める
-        self.forced_speed *= 0.98 
-
-        if self.forced_speed < 0.1:
-            self.is_forced_spinning = False
-            self.forced_speed = 0
-            # 少し待ってから結果発表
-            self.root.after(1000, self.show_forced_result)
+        if result == "逃げる":
+            st.success("奇跡的に見逃された...")
+            st.info("このタブを閉じてください。")
+            st.stop()
         else:
-            self.root.after(16, self.animate_forced)
-
-    def show_forced_result(self):
-        """強制結果判定とアクション実行"""
-        winner = self._get_winner(self.forced_items, self.forced_angle)
-        
-        result_label = tk.Label(self.trap_window, text=f"結果: 【 {winner} 】", 
-                                font=("Meiryo", 20, "bold"), bg="black", fg="white")
-        result_label.pack(pady=10)
-
-        # 結果に応じたアクション（少し待ってから実行）
-        if winner == "逃げる":
-            result_label.config(fg="green")
-            self.root.after(2000, self._force_exit_app)
-        else:
-            result_label.config(fg="red")
-            self.root.after(2000, self._execute_death_penalty)
-
-    def _force_exit_app(self):
-        """アプリ強制終了"""
-        messagebox.showinfo("運命", "今回は見逃してやろう...", parent=self.trap_window)
-        self.root.destroy()
-        sys.exit()
-
-    def _execute_death_penalty(self):
-        """死亡ペナルティ執行（YouTubeを開いて終了）"""
-        messagebox.showerror("運命", "さようなら...", parent=self.trap_window)
-        webbrowser.open(YOUTUBE_URL)
-        self.root.destroy()
-        sys.exit()
+            st.error("【 結果：死亡 】")
+            st.write("さようなら...")
+            time.sleep(1)
+            # YouTube動画埋め込み（自動再生）
+            st.video(f"https://www.youtube.com/watch?v={YOUTUBE_VIDEO_ID}", autoplay=True)
+            st.stop()
 
 if __name__ == "__main__":
-    root = tk.Tk()
-    app = RouletteApp(root)
-    root.mainloop()
+    main()
