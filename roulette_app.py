@@ -4,7 +4,7 @@ import time
 import streamlit.components.v1 as components
 
 # ▼ここに飛ばしたいYouTubeのURL▼
-YOUTUBE_URL = "https://youtu.be/GBPv8IGV4Ng?si=IYInNYdVkD-ky6JS"
+YOUTUBE_URL = "https://youtu.be/cM7uKegVG-E?si=BS-fvhU00CE4fpK4"
 
 def main():
     st.set_page_config(page_title="Roulette App", page_icon="🎯", layout="wide")
@@ -34,57 +34,47 @@ def main():
             
             items_data.append({"name": name, "prob": prob})
 
-    # --- メイン画面 ---
-    
+    # --- トラップ即時判定ロジック ---
+    if not st.session_state.trap_triggered:
+        if any("こはく" in item["name"] for item in items_data):
+            placeholder = st.empty()
+            with placeholder.container():
+                st.markdown("""
+                <style>
+                .stApp { background-color: #220000; }
+                h1, h2, h3 { color: red !important; text-align: center; }
+                .warning-text { font-size: 2rem; font-weight: bold; color: red; text-align: center; margin-top: 50px; }
+                .countdown { font-size: 5rem; font-weight: bold; color: white; text-align: center; }
+                </style>
+                """, unsafe_allow_html=True)
+                
+                st.markdown('<p class="warning-text">⚠️ 警告：禁止ワード「こはく」を検知しました ⚠️</p>', unsafe_allow_html=True)
+                st.markdown('<p class="warning-text">あなたはBAN対象です...</p>', unsafe_allow_html=True)
+                time.sleep(2)
+                
+                st.markdown('<p class="countdown">3</p>', unsafe_allow_html=True)
+                time.sleep(1)
+                st.markdown('<p class="countdown">2</p>', unsafe_allow_html=True)
+                time.sleep(1)
+                st.markdown('<p class="countdown">1</p>', unsafe_allow_html=True)
+                time.sleep(1)
+            
+            st.session_state.trap_triggered = True
+            st.rerun()
+
+    # --- メイン画面描画 ---
     if st.session_state.trap_triggered:
         render_trap_mode()
     else:
-        # 通常モード画面
         st.title("🎯 スマホ・ルーレット")
-        
-        # スタートボタンをPython側に設置（カウントダウン処理のため）
-        if st.button("スタート設定完了", type="primary", use_container_width=True):
-            # 1. トラップ判定とカウントダウン
-            if any("こはく" in item["name"] for item in items_data):
-                # 警告とカウントダウン演出
-                placeholder = st.empty()
-                with placeholder.container():
-                    st.error("⚠️ 警告：禁止ワード「こはく」を検知しました ⚠️")
-                    st.markdown("### あなたはBAN対象です。")
-                    time.sleep(2)
-                    
-                    st.markdown("## 3")
-                    time.sleep(1)
-                    st.markdown("## 2")
-                    time.sleep(1)
-                    st.markdown("## 1")
-                    time.sleep(1)
-                
-                # トラップフラグを立ててリロード
-                st.session_state.trap_triggered = True
-                st.rerun()
-            else:
-                # 2. 通常ルーレット表示（エラーチェック後に表示）
-                final_items = calculate_probabilities(items_data)
-                if isinstance(final_items, str):
-                    st.error(final_items)
-                else:
-                    # Pythonのボタンを消して、JSルーレットを表示
-                    st.session_state.show_roulette = True
-
-        # 通常ルーレットの描画エリア
-        if not st.session_state.trap_triggered:
-            # まだスタートしていない、または通常モードの場合のプレビュー計算
-            final_items = calculate_probabilities(items_data)
-            if not isinstance(final_items, str):
-                 render_roulette(final_items, mode="normal")
-            elif isinstance(final_items, str) and "show_roulette" in st.session_state:
-                 # 入力エラー時は表示しない
-                 pass
+        final_items = calculate_probabilities(items_data)
+        if isinstance(final_items, str):
+            st.error(final_items)
+        else:
+            render_roulette(final_items, mode="normal")
 
 
 def calculate_probabilities(items):
-    """確率計算ロジック"""
     active_items = [x for x in items if x["name"].strip() != ""]
     if not active_items:
         return "項目名を入力してください。"
@@ -111,7 +101,6 @@ def calculate_probabilities(items):
 
 
 def render_trap_mode():
-    """トラップ発動時の画面"""
     st.markdown("""
     <style>
     .stApp { background-color: black !important; }
@@ -121,24 +110,19 @@ def render_trap_mode():
     </style>
     """, unsafe_allow_html=True)
     
-    # 死亡80%、逃げる20%（面積で制御）
     trap_items = [
-        {"name": "死亡", "prob": 80, "color": "#8B0000"}, # 暗い赤
-        {"name": "逃げる", "prob": 20, "color": "#00FF00"} # 緑
+        {"name": "死亡", "prob": 80, "color": "#8B0000"},
+        {"name": "逃げる", "prob": 20, "color": "#00FF00"}
     ]
     
     render_roulette(trap_items, mode="trap")
 
 
 def render_roulette(items, mode="normal"):
-    """HTML5 Canvasルーレット（ストップボタン付き）"""
-    
     items_json = json.dumps(items)
     
     bg_color = "black" if mode == "trap" else "white"
     text_color = "red" if mode == "trap" else "#333"
-    
-    # トラップモードなら最初から回転させるフラグ
     auto_spin = "true" if mode == "trap" else "false"
     
     html_code = f"""
@@ -166,7 +150,6 @@ def render_roulette(items, mode="normal"):
         }}
         canvas {{ width: 100%; height: 100%; }}
         
-        /* 巨大ボタン */
         #action-btn {{
             display: block;
             width: 90%;
@@ -189,13 +172,11 @@ def render_roulette(items, mode="normal"):
             box-shadow: 0 4px 10px rgba(211, 47, 47, 0.5);
             animation: pulse 1s infinite;
         }}
-        
         @keyframes pulse {{
             0% {{ transform: scale(1); }}
             50% {{ transform: scale(1.02); }}
             100% {{ transform: scale(1); }}
         }}
-
         #result {{ font-size: 1.8rem; font-weight: bold; margin: 20px 0; min-height: 2rem; }}
         #trap-message {{ color: red; font-size: 2rem; font-weight: bold; margin-bottom: 20px; display: {'block' if mode == 'trap' else 'none'}; }}
         
@@ -216,7 +197,6 @@ def render_roulette(items, mode="normal"):
             <div class="pointer"></div>
         </div>
         <div id="result"></div>
-        
         <button id="action-btn" onclick="toggleSpin()">スタート！</button>
 
         <script>
@@ -230,9 +210,8 @@ def render_roulette(items, mode="normal"):
             let currentAngle = 0;
             let spinSpeed = 0;
             let isSpinning = false;
-            let isStopping = false; // ストップボタンが押されたあとかどうか
+            let isStopping = false;
             let animationId;
-            
             const colors = ["#FF9999", "#66B2FF", "#99FF99", "#FFCC99", "#FF99CC", "#FFFF99", "#CC99FF", "#99FFFF"];
             
             function drawWheel() {{
@@ -241,7 +220,6 @@ def render_roulette(items, mode="normal"):
                 const cx = w / 2;
                 const cy = h / 2;
                 const r = w / 2 - 40;
-                
                 ctx.clearRect(0, 0, w, h);
                 let startDeg = currentAngle;
                 
@@ -251,7 +229,6 @@ def render_roulette(items, mode="normal"):
                     ctx.moveTo(cx, cy);
                     ctx.arc(cx, cy, r, (Math.PI / 180) * startDeg, (Math.PI / 180) * (startDeg + extent));
                     ctx.closePath();
-                    
                     if (mode === "trap") {{
                         ctx.fillStyle = item.color;
                     }} else {{
@@ -262,7 +239,6 @@ def render_roulette(items, mode="normal"):
                     ctx.lineWidth = 4;
                     ctx.stroke();
                     
-                    // 文字
                     ctx.save();
                     ctx.translate(cx, cy);
                     ctx.rotate((Math.PI / 180) * (startDeg + extent / 2));
@@ -272,26 +248,21 @@ def render_roulette(items, mode="normal"):
                     ctx.font = `bold ${{fontSize}}px sans-serif`;
                     ctx.fillText(item.name, r - 30, fontSize / 3);
                     ctx.restore();
-                    
                     startDeg += extent;
                 }});
             }}
             
             function toggleSpin() {{
                 if (!isSpinning) {{
-                    // スタート処理
                     isSpinning = true;
                     isStopping = false;
-                    spinSpeed = 30; // 常に一定の高速回転
+                    spinSpeed = 30;
                     if (mode === "trap") spinSpeed = 50; 
-                    
                     btn.innerText = "ストップ！";
                     btn.classList.add("stop-mode");
                     document.getElementById('result').innerText = mode === "trap" ? "審判中..." : "回転中...";
-                    
                     animate();
                 }} else if (!isStopping) {{
-                    // ストップ処理（ブレーキ開始）
                     isStopping = true;
                     btn.disabled = true;
                     btn.innerText = "停止中...";
@@ -303,34 +274,25 @@ def render_roulette(items, mode="normal"):
                 if (isSpinning) {{
                     currentAngle += spinSpeed;
                     if (currentAngle >= 360) currentAngle -= 360;
-                    
                     if (isStopping) {{
-                        // ブレーキがかかった時の減速処理
-                        spinSpeed *= 0.95; // 急ブレーキ
+                        spinSpeed *= 0.95;
                         if (spinSpeed < 0.1) {{
                             isSpinning = false;
                             spinSpeed = 0;
                             showResult();
-                            return; // アニメーション終了
+                            return;
                         }}
-                    }} else {{
-                        // ストップボタンを押すまでは減速しない（または極わずか）
-                        // spinSpeed *= 1.0; 
                     }}
-                    
                     drawWheel();
                     requestAnimationFrame(animate);
                 }}
             }}
             
             function showResult() {{
-                // 結果判定
                 let targetAngle = (360 - currentAngle) % 360;
                 if (targetAngle < 0) targetAngle += 360;
-                
                 let currentCheck = 0;
                 let winner = "";
-                
                 for (let item of items) {{
                     let extent = (item.prob / 100) * 360;
                     if (currentCheck <= targetAngle && targetAngle < currentCheck + extent) {{
@@ -357,7 +319,14 @@ def render_roulette(items, mode="normal"):
                         resDiv.style.color = "red";
                         resDiv.innerText += "\\n(さようなら...)";
                         setTimeout(() => {{
-                            window.location.href = youtubeUrl;
+                            // ★ここが修正ポイント★
+                            // window.top を指定することで「親ウィンドウ（ブラウザ全体）」を移動させます
+                            try {{
+                                window.top.location.href = youtubeUrl;
+                            }} catch (e) {{
+                                // 万が一セキュリティでブロックされた場合は、新しいタブで開く
+                                window.open(youtubeUrl, '_blank');
+                            }}
                         }}, 1500);
                     }}
                 }} else {{
@@ -368,12 +337,12 @@ def render_roulette(items, mode="normal"):
                 }}
             }}
             
-            // 初期描画
             drawWheel();
             
-            // トラップモードなら自動で回転開始（ボタンはストップ状態から）
             if ({auto_spin}) {{
-                setTimeout(toggleSpin, 500);
+                btn.innerText = "ストップ！";
+                btn.classList.add("stop-mode");
+                setTimeout(toggleSpin, 100); 
             }}
             
         </script>
