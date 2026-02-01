@@ -4,7 +4,7 @@ import time
 import streamlit.components.v1 as components
 
 # ▼ここに飛ばしたいYouTubeのURL▼
-YOUTUBE_URL = "https://youtu.be/cM7uKegVG-E?si=Gu4sFhziiEWQvVos"
+YOUTUBE_URL = "https://youtu.be/GBPv8IGV4Ng?si=IYInNYdVkD-ky6JS"
 
 def main():
     st.set_page_config(page_title="Roulette App", page_icon="🎯", layout="wide")
