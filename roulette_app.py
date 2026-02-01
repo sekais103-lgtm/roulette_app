@@ -4,7 +4,7 @@ import time
 import streamlit.components.v1 as components
 
 # ▼ここに飛ばしたいYouTubeのURL▼
-YOUTUBE_URL = "https://youtu.be/cM7uKegVG-E?si=BS-fvhU00CE4fpK4"
+YOUTUBE_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 
 def main():
     st.set_page_config(page_title="Roulette App", page_icon="🎯", layout="wide")
@@ -167,16 +167,42 @@ def render_roulette(items, mode="normal"):
             -webkit-tap-highlight-color: transparent;
         }}
         #action-btn:active {{ transform: scale(0.98); }}
+        
         #action-btn.stop-mode {{
             background: linear-gradient(135deg, #D32F2F, #FF5252) !important;
             box-shadow: 0 4px 10px rgba(211, 47, 47, 0.5);
             animation: pulse 1s infinite;
         }}
+        
+        /* YouTubeへ強制移動用ボタンのデザイン */
+        #action-btn.punish-mode {{
+            background: linear-gradient(135deg, #000000, #330000) !important;
+            border: 2px solid red;
+            color: red;
+            box-shadow: 0 0 15px red;
+            animation: shake 0.5s infinite;
+        }}
+
         @keyframes pulse {{
             0% {{ transform: scale(1); }}
             50% {{ transform: scale(1.02); }}
             100% {{ transform: scale(1); }}
         }}
+        
+        @keyframes shake {{
+            0% {{ transform: translate(1px, 1px) rotate(0deg); }}
+            10% {{ transform: translate(-1px, -2px) rotate(-1deg); }}
+            20% {{ transform: translate(-3px, 0px) rotate(1deg); }}
+            30% {{ transform: translate(3px, 2px) rotate(0deg); }}
+            40% {{ transform: translate(1px, -1px) rotate(1deg); }}
+            50% {{ transform: translate(-1px, 2px) rotate(-1deg); }}
+            60% {{ transform: translate(-3px, 1px) rotate(0deg); }}
+            70% {{ transform: translate(3px, 1px) rotate(-1deg); }}
+            80% {{ transform: translate(-1px, -1px) rotate(1deg); }}
+            90% {{ transform: translate(1px, 2px) rotate(0deg); }}
+            100% {{ transform: translate(1px, -2px) rotate(-1deg); }}
+        }}
+
         #result {{ font-size: 1.8rem; font-weight: bold; margin: 20px 0; min-height: 2rem; }}
         #trap-message {{ color: red; font-size: 2rem; font-weight: bold; margin-bottom: 20px; display: {'block' if mode == 'trap' else 'none'}; }}
         
@@ -253,6 +279,12 @@ def render_roulette(items, mode="normal"):
             }}
             
             function toggleSpin() {{
+                if (btn.classList.contains("punish-mode")) {{
+                    // 制裁ボタンモードの場合、クリックでYouTubeへ移動
+                    window.open(youtubeUrl, '_blank');
+                    return;
+                }}
+                
                 if (!isSpinning) {{
                     isSpinning = true;
                     isStopping = false;
@@ -318,16 +350,22 @@ def render_roulette(items, mode="normal"):
                     }} else {{
                         resDiv.style.color = "red";
                         resDiv.innerText += "\\n(さようなら...)";
+                        
+                        // ★修正ポイント：自動移動を試みるが、失敗対策としてボタンを変える
                         setTimeout(() => {{
-                            // ★ここが修正ポイント★
-                            // window.top を指定することで「親ウィンドウ（ブラウザ全体）」を移動させます
-                            try {{
-                                window.top.location.href = youtubeUrl;
-                            }} catch (e) {{
-                                // 万が一セキュリティでブロックされた場合は、新しいタブで開く
-                                window.open(youtubeUrl, '_blank');
+                            // 1. まずは自動移動をトライ（スマホだとブロックされやすい）
+                            const win = window.open(youtubeUrl, '_blank');
+                            
+                            // 2. ボタンを「制裁ボタン」に変身させて、手動で押せるようにする
+                            btn.disabled = false;
+                            btn.innerText = "制裁を受ける（タップ）";
+                            btn.classList.add("punish-mode");
+                            
+                            // 3. もし自動移動が成功していればいいが、していなければユーザーがこのボタンを押す
+                            if (!win) {{
+                                resDiv.innerText += "\\nボタンを押して移動してください";
                             }}
-                        }}, 1500);
+                        }}, 1000);
                     }}
                 }} else {{
                     btn.innerText = "もう一度回す";
